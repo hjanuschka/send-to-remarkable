@@ -1,0 +1,89 @@
+/* Shared design system: paper-white + ink + marker-yellow accent */
+:root {
+  --bg: #f6f5f2;
+  --card: #ffffff;
+  --ink: #191919;
+  --muted: #6f6c66;
+  --accent: #ffb300;
+  --border: #e6e3dd;
+  --ok: #1a7a2e;
+  --err: #b00020;
+  --radius: 14px;
+  --shadow: 0 1px 2px rgba(25, 25, 25, 0.05), 0 8px 24px rgba(25, 25, 25, 0.08);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: ui-sans-serif, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 20px;
+}
+
+h1 { font-size: 20px; font-weight: 700; letter-spacing: -0.01em; margin: 0; }
+h2 { font-size: 14px; font-weight: 600; margin: 0 0 6px; }
+p.hint { color: var(--muted); font-size: 13px; line-height: 1.5; margin: 0 0 14px; }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 10px 18px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--ink);
+  cursor: pointer;
+  transition: transform 0.06s ease, box-shadow 0.15s ease, background 0.15s ease;
+  user-select: none;
+}
+.btn:hover { box-shadow: 0 2px 10px rgba(25, 25, 25, 0.12); }
+.btn:active { transform: scale(0.98); }
+.btn:disabled { opacity: 0.45; pointer-events: none; }
+.btn.primary { background: var(--ink); border-color: var(--ink); color: #fff; }
+.btn.accent { background: var(--accent); border-color: var(--accent); color: var(--ink); }
+.btn.block { width: 100%; padding: 12px 18px; font-size: 15px; }
+
+.input {
+  font-size: 15px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+  color: var(--ink);
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(255, 179, 0, 0.25); }
+
+.code-input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 20px;
+  letter-spacing: 6px;
+  text-transform: lowercase;
+  text-align: center;
+  width: 14ch;
+}
+
+.status { font-size: 13px; margin-top: 12px; min-height: 18px; }
+.status.ok { color: var(--ok); }
+.status.err { color: var(--err); }
+
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.dot.on { background: var(--ok); }
+.dot.off { background: #c4c1ba; }
+
+a { color: var(--ink); }

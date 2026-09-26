@@ -69,21 +69,28 @@ async function main(): Promise<void> {
 
   const style = document.createElement("style");
   style.textContent = `
-    .backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; font-family: -apple-system, system-ui, sans-serif; }
-    .modal { background: #fff; color: #111; width: min(720px, 92vw); max-height: 86vh; border-radius: 10px; display: flex; flex-direction: column; box-shadow: 0 12px 40px rgba(0,0,0,0.35); overflow: hidden; }
-    .head { padding: 14px 18px; border-bottom: 1px solid #ddd; display: flex; gap: 10px; align-items: center; }
-    .head input { flex: 1; font-size: 15px; padding: 7px 10px; border: 1px solid #bbb; border-radius: 6px; }
-    .preview { padding: 14px 18px; overflow: auto; flex: 1; font: 14px/1.5 Georgia, serif; }
+    .backdrop { position: fixed; inset: 0; background: rgba(20,18,14,0.45); backdrop-filter: blur(3px); display: flex; align-items: center; justify-content: center; font-family: ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    .modal { background: #fff; color: #191919; width: min(720px, 92vw); max-height: 86vh; border-radius: 16px; display: flex; flex-direction: column; box-shadow: 0 2px 6px rgba(25,25,25,0.08), 0 24px 64px rgba(25,25,25,0.35); overflow: hidden; }
+    .head { padding: 14px 18px; border-bottom: 1px solid #e6e3dd; display: flex; gap: 10px; align-items: center; background: #f6f5f2; }
+    .head input { flex: 1; font-size: 15px; font-weight: 600; padding: 9px 13px; border: 1px solid #e6e3dd; border-radius: 10px; background: #fff; color: #191919; outline: none; }
+    .head input:focus { border-color: #ffb300; box-shadow: 0 0 0 3px rgba(255,179,0,0.25); }
+    .preview { padding: 16px 20px; overflow: auto; flex: 1; font: 14px/1.55 Georgia, serif; }
     .preview h1, .preview h2, .preview h3 { line-height: 1.25; }
-    .foot { padding: 12px 18px; border-top: 1px solid #ddd; display: flex; gap: 10px; justify-content: flex-end; align-items: center; }
-    .status { margin-right: auto; font-size: 13px; color: #555; }
-    button { font-size: 14px; padding: 8px 16px; border-radius: 6px; border: 1px solid #bbb; background: #f4f4f4; cursor: pointer; }
-    button.primary { background: #111; border-color: #111; color: #fff; }
-    button:disabled { opacity: 0.5; cursor: default; }
+    .foot { padding: 12px 18px; border-top: 1px solid #e6e3dd; display: flex; gap: 10px; justify-content: flex-end; align-items: center; background: #f6f5f2; }
+    .status { margin-right: auto; font-size: 13px; color: #6f6c66; }
+    button { font-size: 14px; font-weight: 600; padding: 9px 18px; border-radius: 999px; border: 1px solid #e6e3dd; background: #fff; color: #191919; cursor: pointer; transition: transform 0.06s ease, box-shadow 0.15s ease; }
+    button:hover { box-shadow: 0 2px 10px rgba(25,25,25,0.12); }
+    button:active { transform: scale(0.98); }
+    button.primary { background: #191919; border-color: #191919; color: #fff; }
+    button.accent { background: #ffb300; border-color: #ffb300; color: #191919; }
+    button:disabled { opacity: 0.45; cursor: default; box-shadow: none; }
     .hidden { display: none !important; }
     canvas.draw { position: fixed; inset: 0; width: 100vw; height: 100vh; cursor: crosshair; touch-action: none; }
-    .drawbar { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); background: #111; color: #fff; border-radius: 999px; padding: 8px 16px; display: flex; gap: 12px; align-items: center; font: 13px system-ui, sans-serif; box-shadow: 0 4px 16px rgba(0,0,0,0.4); }
-    .drawbar button { padding: 4px 12px; font-size: 13px; }
+    .drawbar { position: fixed; top: 14px; left: 50%; transform: translateX(-50%); background: #191919; color: #fff; border-radius: 999px; padding: 8px 10px 8px 18px; display: flex; gap: 8px; align-items: center; font: 600 13px ui-sans-serif, system-ui, sans-serif; box-shadow: 0 8px 28px rgba(0,0,0,0.45); }
+    .drawbar #count { margin-right: 6px; opacity: 0.85; font-variant-numeric: tabular-nums; }
+    .drawbar button { padding: 6px 14px; font-size: 13px; border-color: transparent; background: rgba(255,255,255,0.12); color: #fff; }
+    .drawbar button:hover { background: rgba(255,255,255,0.22); box-shadow: none; }
+    .drawbar button.active { background: #ffb300; color: #191919; }
   `;
   shadow.appendChild(style);
 
@@ -97,9 +104,9 @@ async function main(): Promise<void> {
       <div class="preview" id="preview"></div>
       <div class="foot">
         <span class="status" id="status"></span>
-        <button id="draw">Draw to select</button>
+        <button id="draw">✏️ Draw to select</button>
         <button id="cancel">Cancel</button>
-        <button id="send" class="primary">Send to reMarkable</button>
+        <button id="send" class="accent">Send to reMarkable</button>
       </div>
     </div>`;
   shadow.appendChild(backdrop);
@@ -159,7 +166,7 @@ async function main(): Promise<void> {
 
     const bar = document.createElement("div");
     bar.className = "drawbar";
-    bar.innerHTML = `<span id="count">0 blocks</span><button id="pen" style="background:#ffb300;border-color:#ffb300;color:#111">✏️ Pen</button><button id="eraser">Eraser</button><button id="clear">Clear</button><button id="done">Done</button>`;
+    bar.innerHTML = `<span id="count">0 blocks</span><button id="pen" class="active">✏️ Pen</button><button id="eraser">Eraser</button><button id="clear">Clear</button><button id="done">Done</button>`;
     shadow.appendChild(bar);
     const countEl = bar.querySelector("#count") as HTMLElement;
     const penButton = bar.querySelector("#pen") as HTMLButtonElement;
@@ -273,13 +280,13 @@ async function main(): Promise<void> {
 
     penButton.addEventListener("click", () => {
       eraserMode = false;
-      penButton.style.cssText = "background:#ffb300;border-color:#ffb300;color:#111";
-      eraserButton.style.cssText = "";
+      penButton.classList.add("active");
+      eraserButton.classList.remove("active");
     });
     eraserButton.addEventListener("click", () => {
       eraserMode = true;
-      eraserButton.style.cssText = "background:#7ec8ff;border-color:#7ec8ff;color:#111";
-      penButton.style.cssText = "";
+      eraserButton.classList.add("active");
+      penButton.classList.remove("active");
     });
 
     canvas.addEventListener("pointerdown", (e) => {

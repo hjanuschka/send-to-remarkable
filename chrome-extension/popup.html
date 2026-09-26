@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <link rel="stylesheet" href="ui.css" />
+  <style>
+    body { width: 320px; padding: 14px; }
+    header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+    header img { width: 32px; height: 32px; }
+    header .name { font-weight: 700; font-size: 15px; letter-spacing: -0.01em; flex: 1; }
+    header .conn { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+    main { display: flex; flex-direction: column; gap: 10px; }
+    footer { margin-top: 14px; text-align: center; }
+    footer a { font-size: 12px; color: var(--muted); text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+    #connect-view p { font-size: 13px; color: var(--muted); line-height: 1.5; margin: 0 0 12px; }
+  </style>
+</head>
+<body>
+  <header>
+    <img src="icons/48.png" alt="" />
+    <span class="name">Send to reMarkable</span>
+    <span class="conn"><span class="dot off" id="dot"></span></span>
+  </header>
+
+  <main id="main-view" style="display:none">
+    <button class="btn accent block" id="send-page">✏️ Send this page</button>
+    <button class="btn block" id="send-file">📄 Send a PDF / EPUB…</button>
+    <input type="file" id="file" accept=".pdf,.epub,application/pdf,application/epub+zip" hidden />
+    <div class="status" id="status"></div>
+  </main>
+
+  <main id="connect-view" style="display:none">
+    <p>Not connected yet. Link this extension with your reMarkable account to start sending pages.</p>
+    <button class="btn primary block" id="connect">Connect reMarkable</button>
+  </main>
+
+  <footer><a href="#" id="settings">Settings</a></footer>
+  <script src="popup.js"></script>
+</body>
+</html>

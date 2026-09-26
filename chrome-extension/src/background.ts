@@ -8,19 +8,8 @@ async function getDeviceToken(): Promise<string | undefined> {
   return stored[TOKEN_KEY];
 }
 
-chrome.action.onClicked.addListener(async (tab) => {
-  if (!tab.id) return;
-  if (!(await getDeviceToken())) {
-    chrome.runtime.openOptionsPage();
-    return;
-  }
-  try {
-    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content.js"] });
-  } catch (error) {
-    // Restricted page (chrome://, Web Store, ...). Nothing we can do here.
-    console.warn("Cannot inject into this page:", error);
-  }
-});
+// Toolbar clicks open popup.html (action.default_popup); injection is
+// triggered from the popup's "Send this page" button.
 
 type Message =
   | { type: "status" }

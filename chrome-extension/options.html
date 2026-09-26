@@ -2,40 +2,64 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Send to reMarkable - Settings</title>
+  <title>Send to reMarkable — Settings</title>
+  <link rel="stylesheet" href="ui.css" />
   <style>
-    body { font-family: -apple-system, system-ui, sans-serif; max-width: 560px; margin: 48px auto; color: #111; padding: 0 16px; }
-    h1 { font-size: 22px; }
-    .card { border: 1px solid #ddd; border-radius: 10px; padding: 20px 24px; margin-top: 16px; }
-    input { font-size: 18px; letter-spacing: 3px; padding: 8px 12px; border: 1px solid #bbb; border-radius: 6px; width: 12ch; text-transform: lowercase; }
-    button { font-size: 14px; padding: 9px 18px; border-radius: 6px; border: 1px solid #111; background: #111; color: #fff; cursor: pointer; margin-left: 8px; }
-    button.secondary { background: #fff; color: #111; }
-    #status { margin-top: 14px; font-size: 14px; }
-    .ok { color: #1a7a2e; }
-    .err { color: #b00020; }
-    a { color: inherit; }
+    body { max-width: 520px; margin: 0 auto; padding: 40px 20px; }
+    header { display: flex; align-items: center; gap: 14px; margin-bottom: 24px; }
+    header img { width: 48px; height: 48px; }
+    .stack { display: flex; flex-direction: column; gap: 16px; }
+    .steps { color: var(--muted); font-size: 13px; line-height: 1.7; margin: 0 0 16px; padding-left: 18px; }
+    .steps a { color: var(--ink); font-weight: 600; }
+    .row { display: flex; gap: 10px; align-items: center; }
+    .connected-row { display: flex; align-items: center; gap: 10px; }
+    .connected-row .grow { flex: 1; font-size: 14px; font-weight: 600; color: var(--ok); }
+    .file-row { display: flex; gap: 10px; align-items: center; }
+    .file-name { flex: 1; font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   </style>
 </head>
 <body>
-  <h1>Send to reMarkable</h1>
-  <div class="card" id="login-card">
-    <p>1. Open <a href="https://my.remarkable.com/device/browser/connect" target="_blank">my.remarkable.com/device/browser/connect</a><br/>
-       2. Enter the 8-character code:</p>
-    <input id="code" maxlength="8" placeholder="abcd1234" autocomplete="off" />
-    <button id="connect">Connect</button>
-    <div id="status"></div>
-  </div>
-  <div class="card" id="connected-card" style="display:none">
-    <p class="ok">✓ Connected to reMarkable.</p>
-    <button id="logout" class="secondary">Disconnect</button>
-    <div id="status2"></div>
-  </div>
-  <div class="card" id="file-card" style="display:none">
-    <h2 style="font-size:16px;margin:0 0 10px">Send a file</h2>
-    <p style="margin:0 0 12px;color:#555;font-size:14px">Upload a PDF or EPUB from your computer to your reMarkable.</p>
-    <input type="file" id="file" accept=".pdf,.epub,application/pdf,application/epub+zip" style="font-size:14px;letter-spacing:normal;width:auto;border:none;padding:0" />
-    <button id="send-file">Send to reMarkable</button>
-    <div id="file-status"></div>
+  <header>
+    <img src="icons/128.png" alt="" />
+    <div>
+      <h1>Send to reMarkable</h1>
+      <p class="hint" style="margin:2px 0 0">Read the web on paper.</p>
+    </div>
+  </header>
+
+  <div class="stack">
+    <div class="card" id="login-card">
+      <h2>Connect your reMarkable</h2>
+      <ol class="steps">
+        <li>Open <a href="https://my.remarkable.com/device/browser/connect" target="_blank">my.remarkable.com/device/browser/connect</a></li>
+        <li>Enter the 8-character code below</li>
+      </ol>
+      <div class="row">
+        <input class="input code-input" id="code" maxlength="8" placeholder="········" autocomplete="off" />
+        <button class="btn primary" id="connect">Connect</button>
+      </div>
+      <div class="status" id="status"></div>
+    </div>
+
+    <div class="card" id="connected-card" style="display:none">
+      <div class="connected-row">
+        <span class="dot on"></span>
+        <span class="grow">Connected to reMarkable</span>
+        <button class="btn" id="logout">Disconnect</button>
+      </div>
+    </div>
+
+    <div class="card" id="file-card" style="display:none">
+      <h2>Send a file</h2>
+      <p class="hint">Upload a PDF or EPUB from your computer straight to your tablet.</p>
+      <div class="file-row">
+        <button class="btn" id="pick-file">Choose file…</button>
+        <span class="file-name" id="file-name">No file selected</span>
+        <button class="btn accent" id="send-file">Send</button>
+      </div>
+      <input type="file" id="file" accept=".pdf,.epub,application/pdf,application/epub+zip" hidden />
+      <div class="status" id="file-status"></div>
+    </div>
   </div>
   <script src="options.js"></script>
 </body>

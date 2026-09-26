@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Send to reMarkable (lab)",
   "description": "Extract readable content, pick elements visually, and send as a nicely typeset EPUB to your reMarkable.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "permissions": [
     "activeTab",
     "scripting",
@@ -26,7 +26,8 @@
       "32": "icons/32.png",
       "48": "icons/48.png",
       "128": "icons/128.png"
-    }
+    },
+    "default_popup": "popup.html"
   },
   "background": {
     "service_worker": "background.js"
