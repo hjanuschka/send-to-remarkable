@@ -1,0 +1,11 @@
+{
+  "name": "pi-remarkable-prototype",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@napi-rs/keyring": "^2.1.0",
+    "jszip": "^3.10.2",
+    "marked": "^18.0.14",
+    "rmapi-js": "^14.3.0"
+  }
+}

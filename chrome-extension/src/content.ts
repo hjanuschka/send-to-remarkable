@@ -1,0 +1,371 @@
+import { Readability } from "@mozilla/readability";
+
+declare global {
+  interface Window {
+    __piRemarkableActive?: boolean;
+  }
+}
+
+// Semantic blocks we prefer to select -- no bare div/section wrappers.
+const PREFERRED_BLOCKS = "p, h1, h2, h3, h4, h5, h6, li, pre, blockquote, figure, table, dt, dd";
+
+const REMOVE_TAGS = new Set([
+  "script", "style", "noscript", "template", "iframe", "object", "embed",
+  "form", "input", "button", "select", "textarea", "svg", "canvas", "video",
+  "audio", "img", "picture", "source", "nav", "footer", "dialog", "link", "meta",
+]);
+
+/** Strip unsafe/noisy nodes and attributes; returns cleaned nodes. */
+function sanitizeFragment(root: Element): void {
+  for (const el of [...root.querySelectorAll("*")]) {
+    if (REMOVE_TAGS.has(el.tagName.toLowerCase())) {
+      el.remove();
+      continue;
+    }
+    for (const attr of [...el.attributes]) {
+      const name = attr.name.toLowerCase();
+      const keep =
+        (name === "href" && el.tagName === "A" && !attr.value.trim().toLowerCase().startsWith("javascript:")) ||
+        name === "colspan" || name === "rowspan";
+      if (!keep) el.removeAttribute(attr.name);
+    }
+  }
+}
+
+/** Serialize sanitized HTML into well-formed XHTML body content. */
+function toXhtmlBody(html: string): string {
+  const doc = document.implementation.createHTMLDocument("");
+  doc.body.innerHTML = html;
+  sanitizeFragment(doc.body);
+  const serializer = new XMLSerializer();
+  return [...doc.body.childNodes].map((node) => serializer.serializeToString(node)).join("");
+}
+
+function extractArticle(): { title: string; html: string } {
+  const clone = document.cloneNode(true) as Document;
+  try {
+    const article = new Readability(clone).parse();
+    if (article?.content && (article.textContent?.trim().length ?? 0) > 200) {
+      return { title: article.title || document.title, html: article.content };
+    }
+  } catch {
+    // fall through to body fallback
+  }
+  return { title: document.title, html: document.body.innerHTML };
+}
+
+async function sendToBackground(message: unknown): Promise<{ ok: boolean; error?: string; connected?: boolean }> {
+  return chrome.runtime.sendMessage(message);
+}
+
+async function main(): Promise<void> {
+  const extracted = extractArticle();
+  // (entry point is at the bottom of this file)
+
+  const host = document.createElement("div");
+  host.style.cssText = "all: initial; position: fixed; inset: 0; z-index: 2147483647;";
+  const shadow = host.attachShadow({ mode: "open" });
+  document.documentElement.appendChild(host);
+
+  const style = document.createElement("style");
+  style.textContent = `
+    .backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; font-family: -apple-system, system-ui, sans-serif; }
+    .modal { background: #fff; color: #111; width: min(720px, 92vw); max-height: 86vh; border-radius: 10px; display: flex; flex-direction: column; box-shadow: 0 12px 40px rgba(0,0,0,0.35); overflow: hidden; }
+    .head { padding: 14px 18px; border-bottom: 1px solid #ddd; display: flex; gap: 10px; align-items: center; }
+    .head input { flex: 1; font-size: 15px; padding: 7px 10px; border: 1px solid #bbb; border-radius: 6px; }
+    .preview { padding: 14px 18px; overflow: auto; flex: 1; font: 14px/1.5 Georgia, serif; }
+    .preview h1, .preview h2, .preview h3 { line-height: 1.25; }
+    .foot { padding: 12px 18px; border-top: 1px solid #ddd; display: flex; gap: 10px; justify-content: flex-end; align-items: center; }
+    .status { margin-right: auto; font-size: 13px; color: #555; }
+    button { font-size: 14px; padding: 8px 16px; border-radius: 6px; border: 1px solid #bbb; background: #f4f4f4; cursor: pointer; }
+    button.primary { background: #111; border-color: #111; color: #fff; }
+    button:disabled { opacity: 0.5; cursor: default; }
+    .hidden { display: none !important; }
+    canvas.draw { position: fixed; inset: 0; width: 100vw; height: 100vh; cursor: crosshair; touch-action: none; }
+    .drawbar { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); background: #111; color: #fff; border-radius: 999px; padding: 8px 16px; display: flex; gap: 12px; align-items: center; font: 13px system-ui, sans-serif; box-shadow: 0 4px 16px rgba(0,0,0,0.4); }
+    .drawbar button { padding: 4px 12px; font-size: 13px; }
+  `;
+  shadow.appendChild(style);
+
+  const backdrop = document.createElement("div");
+  backdrop.className = "backdrop";
+  backdrop.innerHTML = `
+    <div class="modal">
+      <div class="head">
+        <input type="text" id="title" />
+      </div>
+      <div class="preview" id="preview"></div>
+      <div class="foot">
+        <span class="status" id="status"></span>
+        <button id="draw">Draw to select</button>
+        <button id="cancel">Cancel</button>
+        <button id="send" class="primary">Send to reMarkable</button>
+      </div>
+    </div>`;
+  shadow.appendChild(backdrop);
+
+  const titleInput = shadow.getElementById("title") as HTMLInputElement;
+  const preview = shadow.getElementById("preview") as HTMLElement;
+  const statusEl = shadow.getElementById("status") as HTMLElement;
+  const sendButton = shadow.getElementById("send") as HTMLButtonElement;
+  const drawButton = shadow.getElementById("draw") as HTMLButtonElement;
+  const cancelButton = shadow.getElementById("cancel") as HTMLButtonElement;
+
+  titleInput.value = extracted.title;
+  let currentHtml = extracted.html;
+  const renderPreview = () => {
+    preview.innerHTML = currentHtml;
+    sanitizeFragment(preview);
+  };
+  renderPreview();
+
+  const cleanup = () => host.remove();
+  cancelButton.addEventListener("click", cleanup);
+
+  sendButton.addEventListener("click", async () => {
+    sendButton.disabled = true;
+    drawButton.disabled = true;
+    statusEl.textContent = "Building EPUB and uploading...";
+    const title = titleInput.value.trim() || document.title || "Untitled";
+    const bodyXhtml = `<h1>${title.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]!)}</h1>${toXhtmlBody(currentHtml)}`;
+    const result = await sendToBackground({ type: "upload", title, bodyXhtml });
+    if (result?.ok) {
+      statusEl.textContent = "Uploaded!";
+      setTimeout(cleanup, 900);
+    } else {
+      statusEl.textContent = result?.error ?? "Upload failed";
+      sendButton.disabled = false;
+      drawButton.disabled = false;
+    }
+  });
+
+  // --- pencil selection mode -------------------------------------------------
+  drawButton.addEventListener("click", () => enterDrawMode());
+
+  function enterDrawMode() {
+    backdrop.classList.add("hidden");
+
+    const canvas = document.createElement("canvas");
+    canvas.className = "draw";
+    canvas.width = window.innerWidth * devicePixelRatio;
+    canvas.height = window.innerHeight * devicePixelRatio;
+    shadow.appendChild(canvas);
+    const ctx = canvas.getContext("2d")!;
+    ctx.scale(devicePixelRatio, devicePixelRatio);
+    ctx.lineWidth = 18;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = "rgba(255, 200, 0, 0.45)";
+
+    const bar = document.createElement("div");
+    bar.className = "drawbar";
+    bar.innerHTML = `<span id="count">0 blocks</span><button id="pen" style="background:#ffb300;border-color:#ffb300;color:#111">✏️ Pen</button><button id="eraser">Eraser</button><button id="clear">Clear</button><button id="done">Done</button>`;
+    shadow.appendChild(bar);
+    const countEl = bar.querySelector("#count") as HTMLElement;
+    const penButton = bar.querySelector("#pen") as HTMLButtonElement;
+    const eraserButton = bar.querySelector("#eraser") as HTMLButtonElement;
+
+    const selected = new Set<Element>();
+    const savedOutline = new Map<Element, string>();
+    // strokes in page coordinates so they survive scrolling
+    const strokes: { x: number; y: number }[][] = [];
+    let activeStroke: { x: number; y: number }[] | null = null;
+
+    const redraw = () => {
+      ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+      for (const stroke of strokes) {
+        ctx.beginPath();
+        for (const [i, pt] of stroke.entries()) {
+          const x = pt.x - window.scrollX;
+          const y = pt.y - window.scrollY;
+          i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+    };
+
+    let eraserMode = false;
+
+    const updateCount = () => {
+      countEl.textContent = `${selected.size} block${selected.size === 1 ? "" : "s"}`;
+    };
+
+    const unmark = (el: Element) => {
+      selected.delete(el);
+      (el as HTMLElement).style.outline = savedOutline.get(el) ?? "";
+      savedOutline.delete(el);
+    };
+
+    const markSelected = (el: Element) => {
+      if (selected.has(el)) return;
+      for (const existing of selected) {
+        if (existing.contains(el)) return; // already covered by a parent
+        if (el.contains(existing)) unmark(existing); // new element swallows children
+      }
+      selected.add(el);
+      savedOutline.set(el, (el as HTMLElement).style.outline);
+      (el as HTMLElement).style.outline = "3px solid #ffb300";
+      updateCount();
+    };
+
+    /** Reject candidates that are page-scale wrappers rather than content blocks. */
+    const isReasonableBlock = (el: Element): boolean => {
+      const rect = el.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return false;
+      if (rect.height > window.innerHeight * 0.7) return false;
+      if ((el.textContent?.trim().length ?? 0) === 0 && !el.querySelector("table, figure")) return false;
+      return true;
+    };
+
+    /**
+     * Find the best content block under the pencil. Walk the full hit stack
+     * (skipping our own overlay and invisible layers), prefer small semantic
+     * blocks, and only fall back to a div-ish wrapper when it is small enough
+     * to plausibly be one content unit.
+     */
+    const findBlock = (clientX: number, clientY: number): Element | null => {
+      for (const el of document.elementsFromPoint(clientX, clientY)) {
+        if (el === host || host.contains(el)) continue;
+        // Skip invisible overlay layers (link stretchers, gradients, ...)
+        const style = getComputedStyle(el);
+        const isOverlay =
+          (style.position === "absolute" || style.position === "fixed") &&
+          (el.textContent?.trim().length ?? 0) === 0;
+        const origin = isOverlay ? el.parentElement : el;
+        if (!origin) continue;
+
+        const preferred = origin.closest(PREFERRED_BLOCKS);
+        if (preferred && isReasonableBlock(preferred)) return preferred;
+
+        // Fallback: nearest ancestor that looks like a single content unit.
+        let candidate: Element | null = origin;
+        while (candidate && candidate !== document.body) {
+          const rect = candidate.getBoundingClientRect();
+          if (
+            rect.height <= window.innerHeight * 0.5 &&
+            rect.width <= window.innerWidth * 0.98 &&
+            isReasonableBlock(candidate)
+          ) {
+            return candidate;
+          }
+          candidate = candidate.parentElement;
+        }
+        return null; // hit stack entry was usable but nothing reasonable found
+      }
+      return null;
+    };
+
+    const hitTest = (clientX: number, clientY: number) => {
+      const block = findBlock(clientX, clientY);
+      if (!block) return;
+      if (eraserMode) {
+        // erase the touched block or any selected ancestor covering it
+        for (const existing of [...selected]) {
+          if (existing === block || existing.contains(block) || block.contains(existing)) {
+            unmark(existing);
+          }
+        }
+        updateCount();
+      } else {
+        markSelected(block);
+      }
+    };
+
+    penButton.addEventListener("click", () => {
+      eraserMode = false;
+      penButton.style.cssText = "background:#ffb300;border-color:#ffb300;color:#111";
+      eraserButton.style.cssText = "";
+    });
+    eraserButton.addEventListener("click", () => {
+      eraserMode = true;
+      eraserButton.style.cssText = "background:#7ec8ff;border-color:#7ec8ff;color:#111";
+      penButton.style.cssText = "";
+    });
+
+    canvas.addEventListener("pointerdown", (e) => {
+      if (!eraserMode) {
+        activeStroke = [{ x: e.clientX + window.scrollX, y: e.clientY + window.scrollY }];
+        strokes.push(activeStroke);
+      } else {
+        activeStroke = [];
+      }
+      hitTest(e.clientX, e.clientY);
+      canvas.setPointerCapture(e.pointerId);
+    });
+    canvas.addEventListener("pointermove", (e) => {
+      if (!activeStroke) return;
+      if (!eraserMode) {
+        activeStroke.push({ x: e.clientX + window.scrollX, y: e.clientY + window.scrollY });
+      }
+      hitTest(e.clientX, e.clientY);
+      redraw();
+    });
+    canvas.addEventListener("pointerup", () => {
+      activeStroke = null;
+    });
+    // let the user scroll the page while in draw mode
+    canvas.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      window.scrollBy(e.deltaX, e.deltaY);
+      redraw();
+    }, { passive: false });
+    window.addEventListener("scroll", redraw, { passive: true });
+    const onResize = () => {
+      canvas.width = window.innerWidth * devicePixelRatio;
+      canvas.height = window.innerHeight * devicePixelRatio;
+      ctx.scale(devicePixelRatio, devicePixelRatio);
+      ctx.lineWidth = 18;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.strokeStyle = "rgba(255, 200, 0, 0.45)";
+      redraw();
+    };
+    window.addEventListener("resize", onResize);
+
+    const exitDrawMode = (apply: boolean) => {
+      for (const [el, outline] of savedOutline) (el as HTMLElement).style.outline = outline;
+      window.removeEventListener("scroll", redraw);
+      window.removeEventListener("resize", onResize);
+      canvas.remove();
+      bar.remove();
+      if (apply && selected.size > 0) {
+        const ordered = [...selected].sort((a, b) =>
+          a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1,
+        );
+        currentHtml = ordered.map((el) => el.outerHTML).join("\n");
+        renderPreview();
+      }
+      backdrop.classList.remove("hidden");
+    };
+
+    (bar.querySelector("#clear") as HTMLButtonElement).addEventListener("click", () => {
+      strokes.length = 0;
+      for (const [el, outline] of savedOutline) (el as HTMLElement).style.outline = outline;
+      selected.clear();
+      savedOutline.clear();
+      countEl.textContent = "0 blocks";
+      redraw();
+    });
+    (bar.querySelector("#done") as HTMLButtonElement).addEventListener("click", () => exitDrawMode(true));
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        window.removeEventListener("keydown", onKey, true);
+        exitDrawMode(false);
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+  }
+}
+
+// Entry point: must run after all module-level constants are initialized.
+if (!window.__piRemarkableActive) {
+  window.__piRemarkableActive = true;
+  main()
+    .catch((error) => {
+      console.error("[send-to-remarkable]", error);
+      alert(`Send to reMarkable failed: ${error instanceof Error ? error.message : error}`);
+    })
+    .finally(() => {
+      window.__piRemarkableActive = false;
+    });
+}
