@@ -1,5 +1,5 @@
 import { buildEpub } from "./epub";
-import { fetchUserToken, registerDevice, uploadEpub } from "./remarkable-api";
+import { fetchUserToken, registerDevice, uploadDocument } from "./remarkable-api";
 
 const TOKEN_KEY = "deviceToken";
 
@@ -56,7 +56,7 @@ chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) =
           if (!deviceToken) throw new Error("Not connected. Open the extension options to register.");
           const userToken = await fetchUserToken(deviceToken);
           const epub = await buildEpub(message.title, message.bodyXhtml);
-          const result = await uploadEpub(userToken, message.title, epub);
+          const result = await uploadDocument(userToken, message.title, epub);
           sendResponse({ ok: true, docID: result.docID });
         } catch (error) {
           sendResponse({ ok: false, error: String(error) });

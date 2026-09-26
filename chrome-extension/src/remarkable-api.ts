@@ -40,17 +40,18 @@ function base64Utf8(text: string): string {
   return btoa(binary);
 }
 
-/** Upload an EPUB to the account's root folder. */
-export async function uploadEpub(
+/** Upload an EPUB or PDF to the account's root folder. */
+export async function uploadDocument(
   userToken: string,
   fileName: string,
   bytes: Uint8Array,
+  contentType: "application/epub+zip" | "application/pdf" = "application/epub+zip",
 ): Promise<{ docID?: string; hash?: string }> {
   const response = await fetch(`${UPLOAD_HOST}/doc/v2/files`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${userToken}`,
-      "Content-Type": "application/epub+zip",
+      "Content-Type": contentType,
       "rm-meta": base64Utf8(JSON.stringify({ file_name: fileName })),
       "rm-source": "RoR-Browser",
     },

@@ -30,6 +30,13 @@
     <button id="logout" class="secondary">Disconnect</button>
     <div id="status2"></div>
   </div>
+  <div class="card" id="file-card" style="display:none">
+    <h2 style="font-size:16px;margin:0 0 10px">Send a file</h2>
+    <p style="margin:0 0 12px;color:#555;font-size:14px">Upload a PDF or EPUB from your computer to your reMarkable.</p>
+    <input type="file" id="file" accept=".pdf,.epub,application/pdf,application/epub+zip" style="font-size:14px;letter-spacing:normal;width:auto;border:none;padding:0" />
+    <button id="send-file">Send to reMarkable</button>
+    <div id="file-status"></div>
+  </div>
   <script src="options.js"></script>
 </body>
 </html>

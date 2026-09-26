@@ -2,8 +2,12 @@
   "manifest_version": 3,
   "name": "Send to reMarkable (lab)",
   "description": "Extract readable content, pick elements visually, and send as a nicely typeset EPUB to your reMarkable.",
-  "version": "0.1.0",
-  "permissions": ["activeTab", "scripting", "storage"],
+  "version": "0.2.0",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
   "host_permissions": [
     "https://webapp-prod.cloud.remarkable.engineering/*",
     "https://internal.cloud.remarkable.com/*",
