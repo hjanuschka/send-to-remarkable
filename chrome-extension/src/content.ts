@@ -74,6 +74,7 @@ async function main(): Promise<void> {
     .head { padding: 14px 18px; border-bottom: 1px solid #e6e3dd; display: flex; gap: 10px; align-items: center; background: #f6f5f2; }
     .head input { flex: 1; font-size: 15px; font-weight: 600; padding: 9px 13px; border: 1px solid #e6e3dd; border-radius: 10px; background: #fff; color: #191919; outline: none; }
     .head input:focus { border-color: #ffb300; box-shadow: 0 0 0 3px rgba(255,179,0,0.25); }
+    select { font-size: 13px; font-weight: 600; padding: 8px 12px; border-radius: 999px; border: 1px solid #e6e3dd; background: #fff; color: #191919; cursor: pointer; max-width: 160px; }
     .preview { padding: 16px 20px; overflow: auto; flex: 1; font: 14px/1.55 Georgia, serif; }
     .preview h1, .preview h2, .preview h3 { line-height: 1.25; }
     .foot { padding: 12px 18px; border-top: 1px solid #e6e3dd; display: flex; gap: 10px; justify-content: flex-end; align-items: center; background: #f6f5f2; }
@@ -104,6 +105,7 @@ async function main(): Promise<void> {
       <div class="preview" id="preview"></div>
       <div class="foot">
         <span class="status" id="status"></span>
+        <select id="folder"><option value="">📁 Root</option></select>
         <button id="draw">✏️ Draw to select</button>
         <button id="cancel">Cancel</button>
         <button id="send" class="accent">Send to reMarkable</button>
@@ -117,6 +119,22 @@ async function main(): Promise<void> {
   const sendButton = shadow.getElementById("send") as HTMLButtonElement;
   const drawButton = shadow.getElementById("draw") as HTMLButtonElement;
   const cancelButton = shadow.getElementById("cancel") as HTMLButtonElement;
+  const folderSelect = shadow.getElementById("folder") as HTMLSelectElement;
+
+  // Populate folder picker in the background; root is always available.
+  void (async () => {
+    try {
+      const response = await chrome.runtime.sendMessage({ type: "folders" });
+      for (const folder of response?.folders ?? []) {
+        const option = document.createElement("option");
+        option.value = folder.id;
+        option.textContent = `📁 ${folder.name}`;
+        folderSelect.appendChild(option);
+      }
+    } catch {
+      // folder list is best-effort; root upload always works
+    }
+  })();
 
   titleInput.value = extracted.title;
   let currentHtml = extracted.html;
@@ -135,7 +153,7 @@ async function main(): Promise<void> {
     statusEl.textContent = "Building EPUB and uploading...";
     const title = titleInput.value.trim() || document.title || "Untitled";
     const bodyXhtml = `<h1>${title.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]!)}</h1>${toXhtmlBody(currentHtml)}`;
-    const result = await sendToBackground({ type: "upload", title, bodyXhtml });
+    const result = await sendToBackground({ type: "upload", title, bodyXhtml, parent: folderSelect.value || undefined });
     if (result?.ok) {
       statusEl.textContent = "Uploaded!";
       setTimeout(cleanup, 900);

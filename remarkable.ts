@@ -2,10 +2,18 @@ import { AsyncEntry } from "@napi-rs/keyring";
 import JSZip from "jszip";
 import { marked } from "marked";
 import { register, remarkable } from "rmapi-js";
+
+type Remarkable = Awaited<ReturnType<typeof remarkable>>;
 import { Type } from "@earendil-works/pi-ai";
 import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { readFile } from "node:fs/promises";
-import { basename, extname, isAbsolute, relative, resolve } from "node:path";
+import { execFile } from "node:child_process";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
+const SCRIPTS_DIR = join(dirname(fileURLToPath(import.meta.url)), "scripts");
 
 const KEYCHAIN_SERVICE = "pi-remarkable";
 const KEYCHAIN_ACCOUNT = "device-token";
@@ -142,20 +150,86 @@ async function loadSource(cwd: string, source: UploadSource): Promise<{ title: s
   return { title, format: "epub", bytes: await makeEpub(title, source.markdown) };
 }
 
-async function upload(cwd: string, source: UploadSource) {
+async function getApi(): Promise<Remarkable> {
   const deviceToken = await tokenEntry.getPassword();
   if (!deviceToken) {
     throw new Error("Not connected to reMarkable. Run /remarkable-login first.");
   }
+  return remarkable(deviceToken);
+}
 
+async function resolveFolderId(api: Remarkable, folderName: string): Promise<string> {
+  const items = await api.listItems();
+  const folders = items.filter((item) => item.type === "CollectionType");
+  const match = folders.find(
+    (folder) => folder.visibleName.toLowerCase() === folderName.toLowerCase(),
+  );
+  if (!match) {
+    const available = folders.map((folder) => folder.visibleName).join(", ") || "(none)";
+    throw new Error(`Folder "${folderName}" not found. Available folders: ${available}`);
+  }
+  return match.id;
+}
+
+async function upload(cwd: string, source: UploadSource, folder?: string) {
+  const api = await getApi();
   const document = await loadSource(cwd, source);
-  const api = await remarkable(deviceToken);
   const name = document.title;
-  const result = document.format === "pdf"
-    ? await api.uploadPdf(name, document.bytes)
-    : await api.uploadEpub(name, document.bytes);
+
+  let result;
+  if (folder) {
+    const parent = await resolveFolderId(api, folder);
+    result = document.format === "pdf"
+      ? await api.putPdf(name, document.bytes, { parent })
+      : await api.putEpub(name, document.bytes, { parent });
+  } else {
+    result = document.format === "pdf"
+      ? await api.uploadPdf(name, document.bytes)
+      : await api.uploadEpub(name, document.bytes);
+  }
 
   return { ...document, result };
+}
+
+/** Find a document by (fuzzy) name; returns the entry or throws with suggestions. */
+async function findDocument(api: Remarkable, name: string) {
+  const items = await api.listItems();
+  const documents = items.filter((item) => item.type === "DocumentType");
+  const query = name.toLowerCase();
+  const match =
+    documents.find((doc) => doc.visibleName.toLowerCase() === query) ??
+    documents.find((doc) => doc.visibleName.toLowerCase().includes(query));
+  if (!match) {
+    const names = documents.slice(0, 20).map((doc) => doc.visibleName).join("\n- ");
+    throw new Error(`No document matching "${name}". Documents include:\n- ${names}`);
+  }
+  return match;
+}
+
+/** Download a document archive and extract it into a directory. */
+async function downloadAndExtract(api: Remarkable, doc: { id: string; hash: string; visibleName: string }, cwd: string) {
+  const zipBytes = await api.getDocumentArchive({ id: doc.id, hash: doc.hash });
+  const directory = join(cwd, "remarkable-inbox", safeFilename(doc.visibleName));
+  await mkdir(directory, { recursive: true });
+  await writeFile(join(directory, "archive.zip"), zipBytes);
+
+  const zip = await JSZip.loadAsync(zipBytes);
+  for (const [path, entry] of Object.entries(zip.files)) {
+    if (entry.dir) continue;
+    const target = join(directory, path);
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, await entry.async("uint8array"));
+  }
+  return directory;
+}
+
+async function runPython(withDeps: string, script: string, args: string[]): Promise<string> {
+  const { stdout } = await execFileAsync(
+    "uv",
+    ["run", "--quiet", "--with", withDeps, "python3", join(SCRIPTS_DIR, script), ...args],
+    { maxBuffer: 32 * 1024 * 1024 },
+  );
+  return stdout;
 }
 
 const sendMarkdown = defineTool({
@@ -167,6 +241,7 @@ const sendMarkdown = defineTool({
     title: Type.Optional(Type.String({ description: "Document title" })),
     markdown: Type.Optional(Type.String({ description: "Markdown content to convert and upload as EPUB" })),
     filePath: Type.Optional(Type.String({ description: "Relative path to a Markdown, PDF, or EPUB file inside the working directory" })),
+    folder: Type.Optional(Type.String({ description: "Destination folder name on the reMarkable (default: root)" })),
   }),
 
   async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -176,20 +251,106 @@ const sendMarkdown = defineTool({
     const source: UploadSource = params.filePath !== undefined
       ? { filePath: params.filePath }
       : { title: params.title || "Untitled", markdown: params.markdown! };
-    const document = await upload(ctx.cwd, source);
+    const document = await upload(ctx.cwd, source, params.folder);
 
     return {
       content: [{
         type: "text",
-        text: `Uploaded "${document.title}" as ${document.format.toUpperCase()} to reMarkable (document ${document.result.id}).`,
+        text: `Uploaded "${document.title}" as ${document.format.toUpperCase()} to reMarkable${params.folder ? ` (folder: ${params.folder})` : ""} (document ${document.result.id}).`,
       }],
-      details: { title: document.title, format: document.format, documentId: document.result.id },
+      details: { title: document.title, format: document.format, documentId: document.result.id, folder: params.folder },
+    };
+  },
+});
+
+const fetchFromRemarkable = defineTool({
+  name: "fetch_from_remarkable",
+  label: "Fetch from reMarkable",
+  description:
+    "Download a document from the user's reMarkable by name into remarkable-inbox/. Optionally render pen annotations onto the original PDF (or blank pages for notebooks). Requires /remarkable-login.",
+  parameters: Type.Object({
+    name: Type.String({ description: "Document name on the reMarkable (fuzzy matched)" }),
+    renderAnnotations: Type.Optional(
+      Type.Boolean({ description: "Render handwriting onto a PDF (requires uv; default true)" }),
+    ),
+  }),
+
+  async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+    const api = await getApi();
+    const doc = await findDocument(api, params.name);
+    const directory = await downloadAndExtract(api, doc, ctx.cwd);
+
+    const outputs: string[] = [join(directory, "archive.zip")];
+    let annotated: string | undefined;
+    let renderNote = "";
+    if (params.renderAnnotations !== false) {
+      try {
+        annotated = join(directory, "annotated.pdf");
+        await runPython("rmscene,pymupdf", "render-annotations.py", [directory, annotated]);
+        outputs.push(annotated);
+      } catch (error) {
+        annotated = undefined;
+        renderNote = `\nAnnotation rendering failed: ${error instanceof Error ? error.message.slice(0, 300) : error}`;
+      }
+    }
+
+    return {
+      content: [{
+        type: "text",
+        text: `Downloaded "${doc.visibleName}" (${doc.fileType}) to ${directory}\nFiles: ${outputs.join(", ")}${renderNote}`,
+      }],
+      details: { name: doc.visibleName, fileType: doc.fileType, directory, annotated },
+    };
+  },
+});
+
+const sendToAppleNotes = defineTool({
+  name: "remarkable_to_apple_notes",
+  label: "reMarkable to Apple Notes",
+  description:
+    "Fetch a document from the user's reMarkable, extract its typed text (keyboard folio; handwriting is not OCRed), and create an Apple Note with it. macOS only. Requires /remarkable-login.",
+  parameters: Type.Object({
+    name: Type.String({ description: "Document name on the reMarkable (fuzzy matched)" }),
+    noteTitle: Type.Optional(Type.String({ description: "Title for the Apple Note (default: document name)" })),
+  }),
+
+  async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+    const api = await getApi();
+    const doc = await findDocument(api, params.name);
+    const directory = await downloadAndExtract(api, doc, ctx.cwd);
+
+    const markdown = (await runPython("rmscene", "extract-text.py", [directory]))
+      .split("\n").filter((line, i, arr) => line.trim() !== "" || arr[i - 1]?.trim() !== "").join("\n")
+      .trim();
+    if (!markdown) {
+      throw new Error(
+        `"${doc.visibleName}" contains no typed text (handwriting is not OCRed). An annotated PDF may work better: use fetch_from_remarkable.`,
+      );
+    }
+
+    const title = params.noteTitle || doc.visibleName;
+    const html = await marked.parse(markdown, { async: true });
+    await execFileAsync("osascript", [
+      "-e", "on run argv",
+      "-e", 'tell application "Notes" to make new note with properties {name:(item 1 of argv), body:(item 2 of argv)}',
+      "-e", "end run",
+      title, html,
+    ]);
+
+    return {
+      content: [{
+        type: "text",
+        text: `Created Apple Note "${title}" with the typed text from "${doc.visibleName}" (${markdown.length} chars).`,
+      }],
+      details: { name: doc.visibleName, noteTitle: title, characters: markdown.length },
     };
   },
 });
 
 export default function (pi: ExtensionAPI) {
   pi.registerTool(sendMarkdown);
+  pi.registerTool(fetchFromRemarkable);
+  pi.registerTool(sendToAppleNotes);
 
   pi.registerCommand("remarkable-login", {
     description: "Connect this Pi extension to your reMarkable account",
