@@ -27,6 +27,10 @@ pi --extension ./remarkable.ts
 
 Device token is stored in the OS credential store (macOS Keychain etc.) via `@napi-rs/keyring`.
 
+## Planned Google Docs review workflow
+
+For the browser-only design-doc review round trip (send a commented Google Doc as a PDF, annotate on reMarkable, fetch and confirm edits/replies one by one), see the [spec](docs/GDOC_REVIEW_SPEC.md) and [implementation plan](docs/GDOC_REVIEW_PLAN.md). This workflow is not implemented yet.
+
 ## Auth
 
 Both use reMarkable's public device-registration flow (same endpoints as [rmapi-js](https://github.com/erikbrinkman/rmapi-js)): enter the 8-character code from <https://my.remarkable.com/device/browser/connect> once; the resulting device token never expires and can be revoked from your reMarkable account settings.
